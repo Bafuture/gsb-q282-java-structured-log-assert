@@ -30,3 +30,36 @@ Pair-wise GSB 标注任务仓库（第 17 批 / 282）。
 1. 在本仓库中完成提示词要求的全部内容。
 2. `./mvnw -q verify` 必须通过。
 3. 完成后在所属分支（A 或 B）上提交，产物快照的父提交必须是初始环境快照。
+
+## 结构化日志断言框架（本仓库实现）
+
+核心类位于 `com.example.logassert`：
+
+- `LogCapture`：线程安全的结构化日志捕获器，记录 `LogEntry`（级别、时间、消息、键值字段、异常）。
+- `StructuredLogger`：把带键值对的日志（可注入 `Clock`）写入捕获器。
+- `LogMatcher`：组合查询条件——级别（`error()`/`warn()`/`info()`）、键值字段（`withField`）、字段存在性（`withFieldPresent`）、消息包含（`withMessageContaining`）、异常类型（`withException(Class)`）。
+- `LogAssertions.assertThat(capture)`：
+  - `hasEntryMatching(m)` / `hasNoEntryMatching(m)`；
+  - `containsInOrder(m1, m2, ...)`：顺序断言，允许中间插入无关日志；
+  - `matching(m).occursExactly(n)` / `occursAtLeast(n)`：数量断言，失败时打印实际匹配到的条目；
+  - `capture.forRequest(reqId)` / `forTrace(traceId)` / `forContext(key, value)`：按请求/链路标识过滤后再断言。
+- 失败时输出实际日志列表（时间戳、级别、字段、异常）与每条条目的不匹配原因；`LogStats` 提供捕获数、断言数、失败数统计。
+
+示例：
+
+```java
+LogCapture capture = new LogCapture();
+StructuredLogger log = new StructuredLogger(capture);
+
+log.info("checkout started", "requestId", "req-1");
+log.error("payment failed", new PaymentException("declined"),
+        "requestId", "req-1", "errorCode", "PAYMENT_DECLINED", "amount", 9900);
+
+LogAssertions.assertThat(capture.forRequest("req-1")).containsInOrder(
+        LogMatcher.info().withMessageContaining("checkout started"),
+        LogMatcher.error().withField("errorCode", "PAYMENT_DECLINED")
+                .withFieldPresent("amount").withException(PaymentException.class));
+LogAssertions.assertThat(capture).matching(LogMatcher.error()).occursExactly(1);
+```
+
+测试见 `src/test/java/com/example/logassert`（37 个用例，覆盖字段匹配、顺序、数量、上下文过滤、失败信息与统计）。
