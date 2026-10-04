@@ -19,6 +19,42 @@ Pair-wise GSB 标注任务仓库（第 17 批 / 282）。
 ./mvnw -q verify
 ```
 
+
+## 框架用法
+
+```java
+try (LogCaptor captor = LogCaptor.start()) {
+    service.handle("req-42", "user-7");
+    service.failPayment("req-42", "user-7", "insufficient funds");
+
+    LogAssertions.assertThat(captor)
+            .withContext("requestId", "req-42")          // 按请求/链路标识过滤
+            .inOrder(                                     // 顺序断言（允许中间插入无关日志）
+                    messageContains("received"),
+                    level(Level.ERROR))
+            .exists(level(Level.ERROR)                    // 组合条件
+                    .and(field("userId", "user-7"))
+                    .and(hasField("reason"))
+                    .and(exceptionIs(IllegalStateException.class)))
+            .exactly(1, level(Level.ERROR));              // 数量断言
+
+    AssertionStats stats = captor.stats();                // 捕获数 / 断言数 / 失败数
+}
+```
+
+断言失败时抛出 `AssertionError`，消息中包含失败原因、实际匹配到的条目列表
+以及当前作用域内的全部日志条目（含字段与异常堆栈摘要），而不是一个布尔值。
+
+主要组件（`com.example.logassert`）：
+
+| 类 | 职责 |
+|----|------|
+| `StructuredLogger` / `LogEntry` / `Level` | 结构化日志核心：级别、时间、消息、键值字段、异常 |
+| `LogCaptor` | 捕获会话内全部日志条目（try-with-resources） |
+| `LogCondition` / `Conditions` | 条件 DSL：级别、字段值、字段存在性、异常类型、消息，可 `and` / `negate` 组合 |
+| `LogAssertion` / `LogAssertions` | 断言入口：`exists` / `absent` / `exactly` / `atLeast` / `inOrder` / `withContext` / `filter` |
+| `AssertionStats` | 统计：captured / asserted / failed |
+
 ## 任务提示词
 
 以下为本题完整的 User Prompt 原文，两次执行必须使用完全相同的文本。
